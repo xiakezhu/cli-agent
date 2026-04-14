@@ -98,4 +98,4 @@ OPENAI_MODEL=gpt-4
 
 - The project uses `bun` as the default runtime, but the code is compatible with Node.js if the dependencies are installed.
 - The `test` script is currently a placeholder and does not run real tests.
-
+- TODO: Add supporting code for MCP servers plugin support in the agent.
