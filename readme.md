@@ -1,101 +1,161 @@
 # CLI Agent
 
-## Description
+CLI Agent is an early-stage AI assistant that runs in a terminal. The assistant, named Wall-E, uses the OpenAI Agents SDK to combine a conversational model with web search, timezone support, and local file reading.
 
-A small CLI-based agent built on top of `@openai/agents` and the Tavily search API. It uses environment configuration to connect to OpenAI-compatible endpoints and to perform web searches through a custom tool.
+The repository is currently a working proof of concept and a foundation for a future local repository assistant. It is suitable for development and evaluation, but it does not yet provide the security controls, persistence, test coverage, or action tools expected from a production product.
+
+## Current Capabilities
+
+- Multi-turn conversation during the current CLI session.
+- OpenAI or OpenAI-compatible model endpoints.
+- Current web research through Tavily.
+- Current time in UTC or an IANA timezone.
+- Local text-file reading with line offset and limit controls.
+- PDF and image loading as base64 data.
+- Tool and handoff event logging.
+- Token-usage reporting after each agent run.
+
+A file-search tool is also implemented and covered by three tests, but it is not yet connected to the running CLI agent.
+
+## Customer Value
+
+In its current form, CLI Agent provides a lightweight terminal interface for:
+
+- Asking general questions without leaving the command line.
+- Researching fresh information from the web.
+- Inspecting and summarizing local source code and documents.
+- Getting timezone-aware time information.
+- Experimenting with specialized agents and custom tools.
+- Connecting to alternative providers that expose an OpenAI-compatible API.
+
+The intended direction is a secure local repository assistant that can find relevant code, explain a project, propose changes, safely edit files, run approved commands, and verify its work.
+
+## Requirements
+
+- [Bun](https://bun.sh/)
+- An API key for an OpenAI-compatible model endpoint
+- A [Tavily](https://tavily.com/) API key for web search
 
 ## Setup
 
-1. Install dependencies: `bun install` or, if you prefer npm: `npm install`
+Install dependencies:
 
-2. Create a `.env` file at the project root.
-
-3. Add required environment variables (see below).
-
-## Environment Variables
-
-Required:
-
-- `LLM_API_KEY` — API key used for the OpenAI-compatible endpoint.
-- `TAVILY_API_KEY` — API key used to query the Tavily search service.
-
-Optional:
-
-- `OPENAI_BASE_URL` — base URL for the OpenAI-compatible API. Defaults to `https://api.openai.com/v1`.
-- `OPENAI_MODEL` — model name to use for the agent. Defaults to `gpt-4`.
-
-Example `.env`:
-
-```dotenv
-LLM_API_KEY=sk-...
-TAVILY_API_KEY=tvly-...
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4
+```bash
+bun install
 ```
 
-## Run Commands
+Create a `.env` file in the repository root:
 
-- Start the CLI agent:
-  - `bun run src/run.ts`
-  - or `npm run dev`
+```dotenv
+LLM_API_KEY=your-model-api-key
+TAVILY_API_KEY=your-tavily-api-key
 
-- Production-style start:
-  - `bun run src/run.ts`
-  - or `npm start`
+# Optional
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4
+LOG_LEVEL=INFO
+```
 
-- Run tests (placeholder):
-  - `npm test`
+Do not commit `.env` or real credentials.
+
+## Running the Agent
+
+Start the interactive CLI:
+
+```bash
+bun run src/run.ts
+```
+
+The equivalent package scripts are:
+
+```bash
+npm run dev
+npm start
+```
+
+Enter `exit` or `quit` to close the session. Conversation history is kept only in memory and is discarded when the process exits.
+
+## Testing and Verification
+
+Run the test suite:
+
+```bash
+bun test
+```
+
+Verify that the CLI entry point bundles successfully:
+
+```bash
+bun build src/run.ts --target=bun --outfile=/tmp/cli-agent.js
+```
+
+Current automated coverage consists of three FileSearchTool tests. Web search, time handling, file reading, configuration, and the complete agent flow still need tests.
 
 ## Architecture
 
-- `src/config.ts`
-  - Reads and validates environment variables with `zod`.
-  - Exposes `config.llmApiKey`, `config.tavilyApiKey`, `config.openAIBaseURL`, and `config.openAIModel`.
+```text
+User terminal
+    |
+    v
+CLI Agent (Wall-E)
+    |-- direct model response
+    |-- Tavily web search
+    |-- local file reader
+    `-- Time Agent handoff
+            `-- timezone-aware current time
+```
 
-- `src/run.ts`
-  - Creates an OpenAI client using `openai`.
-  - Configures the `@openai/agents` runtime and default client.
-  - Defines the `Time Agent` and `CLI Agent`.
-  - Uses `triageAgent` to decide whether to answer directly or route queries to tools.
-  - Maintains conversation history and a simple readline loop.
+| Path | Purpose |
+| --- | --- |
+| `src/run.ts` | Application entry point, agent configuration, CLI loop, and session history |
+| `src/config.ts` | Environment validation and model/search configuration |
+| `src/tools/searchWeb.ts` | Tavily-backed web search tool |
+| `src/tools/time.ts` | Current-time tool used by the Time Agent |
+| `src/tools/FileReadTool.ts` | Text, PDF, and image reader |
+| `src/tools/FileSearchTool.ts` | Glob and content search; implemented but not yet registered |
+| `src/tools/index.ts` | Public tool exports used by the agent |
+| `src/utils/logger.ts` | Structured console logging |
+| `src/utils/pdf.ts` | PDF-to-base64 helper |
 
-- `src/tools/index.ts`
-  - Re-exports available tools.
+## File Support
 
-- `src/tools/searchWeb.ts`
-  - Implements a `searchWeb` tool using Tavily search.
-  - Passes queries to `tvly.search(...)` and returns formatted results.
+FileReadTool currently supports:
 
-- `src/tools/time.ts`
-  - Implements a `currentTime` tool that returns the current time, optionally for a requested timezone.
+- Text and code: `txt`, `ts`, `js`, `json`, `md`, `py`, `java`, `cpp`, `h`, `c`, `css`, `html`, `xml`, `yaml`, `yml`, `log`, `csv`
+- Documents: `pdf`
+- Images: `png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `svg`
 
-## Known Limitations
+Text files can be read by line range. PDF and image files are returned as base64; the project does not yet perform PDF text extraction or guaranteed visual interpretation. The PDF `pages` argument is validated but currently does not filter the returned document.
 
-- No persistent conversation storage beyond the current CLI session.
-- Limited error handling for tool failures and API connectivity issues.
-- `OPENAI_MODEL` fallback is hardcoded, so custom model selection requires env configuration.
-- The agent’s behavior depends on tool handoff prompts and may sometimes call the wrong tool or search unnecessarily.
+## Current Limitations
 
-## Troubleshooting
+- No persistent conversations or user preferences.
+- No file writing, command execution, Git management, or process monitoring.
+- File access is not yet restricted to configured workspace roots.
+- FileSearchTool is not exposed to the CLI agent.
+- Limited automated test coverage and no end-to-end test.
+- No retry or cancellation strategy for model and search failures.
+- No production authentication, audit storage, usage limits, or cost controls.
+- Large PDF and image base64 responses can consume substantial model context.
 
-- If the CLI fails at startup:
-  - Verify `.env` exists and includes `LLM_API_KEY` and `TAVILY_API_KEY`.
-  - Ensure the values are not empty and are exported into your shell.
+Use the agent only in a trusted local environment and avoid asking it to read sensitive paths.
 
-- If model calls fail:
-  - Confirm `OPENAI_BASE_URL` is correct and reachable.
-  - Check your API key permissions.
+## Development Status and Roadmap
 
-- If search does not work:
-  - Verify `TAVILY_API_KEY` is valid.
-  - Confirm the call to `tavily({ apiKey: ... }).search(...)` is permitted by your account.
+The current implementation is an early prototype, estimated at roughly 25–35% of the broader tool roadmap.
 
-- If the CLI hangs or prints strange output:
-  - Look for console debug lines from `agent_tool_start` and `agent_handoff`.
-  - Run the process with a valid `.env` and retry.
+Near-term priorities are:
 
-## Notes
+1. Register and expose FileSearchTool.
+2. Restrict filesystem access to configured workspace roots.
+3. Add comprehensive FileReadTool tests and real PDF page support.
+4. Add a safe FileWriteTool.
+5. Add structured, allowlisted command execution.
+6. Add Git workflows and end-to-end tests.
+7. Add session persistence and production observability.
 
-- The project uses `bun` as the default runtime, but the code is compatible with Node.js if the dependencies are installed.
-- The `test` script is currently a placeholder and does not run real tests.
-- TODO: Add supporting code for MCP servers plugin support in the agent.
+See `agents.md` for detailed implementation guidance and the definition of done for new tools.
+
+## License
+
+ISC
