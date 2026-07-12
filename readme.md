@@ -44,7 +44,13 @@ Install dependencies:
 bun install
 ```
 
-Create a `.env` file in the repository root:
+Copy the example configuration:
+
+```bash
+cp .env.example .env
+```
+
+Then replace the placeholder keys in `.env`:
 
 ```dotenv
 LLM_API_KEY=your-model-api-key
