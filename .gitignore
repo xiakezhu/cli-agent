@@ -9,6 +9,9 @@ __pycache__/
 .env.local
 .env.*.local
 
+# Local agent skills
+skills/
+
 # Build outputs
 dist/
 build/
