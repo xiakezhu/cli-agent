@@ -10,7 +10,18 @@ import { OpenAI } from "openai";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { config } from "./config";
-import { currentTimeTool, FileReadTool, searchWebTool } from "./tools";
+import {
+  defaultSkillRoots,
+  createSkillResourceReadTool,
+  formatSkillInstructions,
+  parseExplicitSkillSelection,
+  resolveSkillCapabilities,
+  selectSkillsImplicitly,
+  SkillLoader,
+  SkillRegistry,
+} from "./skills";
+import { currentTimeTool, getTools } from "./tools";
+import type { ToolCapability } from "./tools";
 import { logger } from "./utils/logger";
 
 function startSpinner(label = "Thinking") {
@@ -47,25 +58,55 @@ const timeAgent = new Agent({
   tools: [currentTimeTool],
 });
 
+const baseInstructions = [
+  "You are an LLM agent running on CLI and your name is Wall-E.",
+  "Answer directly when no tool is needed.",
+  "Use searchWeb for current or externally verifiable information.",
+  "Use FileSearch to locate local files or search their text content.",
+  "Use FileReadTool only when a specific local file needs to be inspected.",
+  "After a tool returns, use its result to answer the user.",
+  "Do not repeat a tool call with identical arguments.",
+].join("\n");
+
+const baseCapabilities: ToolCapability[] = [
+  "web-search",
+  "filesystem-read",
+  "filesystem-search",
+];
+
 const triageAgent = new Agent({
   name: "CLI Agent",
   model: config.openAIModel,
-  instructions: [
-    "You are an LLM agent running on CLI and your name is Wall-E. You can answer questions and call tools when useful.",
-    "Decide whether web search is needed. If needed, call searchWeb with a concise query.",
-  ].join("\n"),
+  instructions: baseInstructions,
   handoffs: [timeAgent],
-  tools: [searchWebTool, FileReadTool],
+  tools: getTools(baseCapabilities),
+  modelSettings: {
+    toolChoice: "auto",
+  },
+  toolUseBehavior: "run_llm_again",
+  resetToolChoice: true,
 });
 
-triageAgent.on("agent_tool_start", (ctx, tool, details) => {
-  logger.debug(
-    `[Tool Start] ${tool.name} with input: ${JSON.stringify(details.toolCall.providerData)}`,
-  );
-});
+function attachAgentLogging(agent: Agent): void {
+  agent.on("agent_tool_start", (_ctx, tool) => {
+    logger.debug(`[Tool Start] ${tool.name}`);
+  });
+  agent.on("agent_handoff", (_ctx, nextAgent) => {
+    logger.debug(`[Agent Handoff] Handing off to ${nextAgent.name}`);
+  });
+  agent.on("agent_tool_end", (_ctx, tool, result) => {
+    logger.debug(`[Tool End] ${tool.name}`, {
+      resultLength: String(result).length,
+    });
+  });
+}
 
-triageAgent.on("agent_handoff", (ctx, nextAgent) => {
-  logger.debug(`[Agent Handoff] Handing off to ${nextAgent.name}`);
+attachAgentLogging(triageAgent);
+
+const skillRegistry = await SkillRegistry.discover(defaultSkillRoots());
+const skillLoader = new SkillLoader(skillRegistry);
+logger.info("Discovered skills", {
+  skills: skillRegistry.list().map(({ name }) => name),
 });
 
 const rl = createInterface({ input, output });
@@ -78,14 +119,51 @@ while (true) {
 
   const stopSpinner = startSpinner();
   try {
+    const explicit = parseExplicitSkillSelection(text, skillRegistry);
+    const selectedSkillNames =
+      explicit.skillNames.length > 0
+        ? explicit.skillNames
+        : await selectSkillsImplicitly({
+            input: explicit.input,
+            registry: skillRegistry,
+            model: config.openAIModel,
+          }).catch((error) => {
+            logger.warn("Skill selection failed; continuing without a skill", {
+              error: error instanceof Error ? error.message : String(error),
+            });
+            return [];
+          });
+    const loadedSkills = await Promise.all(
+      selectedSkillNames.map((name) => skillLoader.load(name)),
+    );
+    const capabilities = [
+      ...new Set([
+        ...baseCapabilities,
+        ...resolveSkillCapabilities(loadedSkills),
+      ]),
+    ];
+    const skillInstructions = formatSkillInstructions(loadedSkills);
+    const taskAgent =
+      loadedSkills.length === 0
+        ? triageAgent
+        : triageAgent.clone({
+            instructions: `${baseInstructions}\n\n${skillInstructions}`,
+            tools: [
+              ...getTools(capabilities),
+              createSkillResourceReadTool(loadedSkills),
+            ],
+          });
+    if (taskAgent !== triageAgent) attachAgentLogging(taskAgent);
+
     const result = await run(
-      triageAgent,
-      thread.concat({ role: "user", content: text }),
+      taskAgent,
+      thread.concat({ role: "user", content: explicit.input }),
+      { maxTurns: 8 },
     );
     stopSpinner();
     thread = result.history;
     logger.info("Total tokens:", result.runContext.usage.totalTokens);
-    logger.info(`Agent: ${result.finalOutput ?? ""}`);
+    console.log(`Agent: ${result.finalOutput ?? ""}`);
   } catch (error) {
     stopSpinner();
     const message = error instanceof Error ? error.message : String(error);

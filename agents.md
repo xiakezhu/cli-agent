@@ -44,12 +44,14 @@ Never commit API keys or `.env` files.
 | `src/config.ts` | Validates environment variables with Zod | Active |
 | `src/tools/searchWeb.ts` | Searches the web through Tavily | Active tool |
 | `src/tools/time.ts` | Returns UTC or timezone-specific current time | Active through Time Agent handoff |
-| `src/tools/FileReadTool.ts` | Reads supported text files, PDFs, and images with size checks | Active tool; needs more tests and security hardening |
-| `src/tools/FileSearchTool.ts` | Searches paths by glob or searches file content | Implemented and tested, but not registered with the CLI agent |
-| `src/tools/index.ts` | Exports tools used by the application | Does not currently export FileSearchTool |
+| `src/tools/FileReadTool.ts` | Reads supported text files, PDFs, and images with size checks | Active tool with basic tests; needs security hardening |
+| `src/tools/FileSearchTool.ts` | Searches paths by glob or searches file content | Active tool with tests |
+| `src/tools/registry.ts` | Selects tools by capability | Active CLI Agent registry |
+| `src/tools/index.ts` | Exports tools and registry helpers used by the application | Active |
+| `src/skills/` | Discovers bounded skill metadata, selects skills, and lazily loads trusted instructions and references | Active |
 | `src/utils/logger.ts` | Structured, colored in-process logging | Active |
-| `src/utils/pdf.ts` | Encodes a PDF as base64 | Active helper; does not extract text or select pages |
 | `src/tools/__tests__/FileSearchTool.test.ts` | Tests file pattern and content search behavior | Three passing tests |
+| `src/skills/__tests__/skills.test.ts` | Tests skill discovery, loading, explicit selection, and context formatting | Active |
 
 ## Agent Flow
 
@@ -79,7 +81,7 @@ Never commit API keys or `.env` files.
 - Searches under `path`, which defaults to the current directory.
 - Returns at most 100 results.
 - Content search skips files larger than 1 MB.
-- This tool is not yet available to the running agent.
+- The CLI Agent receives this tool through the capability registry.
 
 ## Development Rules
 
@@ -88,13 +90,16 @@ Never commit API keys or `.env` files.
 - Treat filesystem access as security-sensitive. New file tools should enforce configured workspace roots and reject paths outside them.
 - Add focused tests for normal behavior, invalid input, boundary sizes, permission failures, and security restrictions.
 - Keep tool responses structured and bounded. Avoid returning unnecessarily large content to the model.
+- Keep skill discovery metadata bounded; full skill instructions must be loaded only for the selected turn.
+- Treat skill files as trusted instructions and restrict loading to configured skill roots.
+- Keep portable `SKILL.md` frontmatter limited to `name` and `description`; place CLI capability metadata in `skill.json`.
+- Load bundled skill references only through the selected-skill resource reader.
 - Preserve the interactive CLI behavior and stop the spinner in every success or failure path.
 - Update both this file and `readme.md` when capabilities or commands change.
 
 ## Known Gaps
 
-- FileSearchTool is implemented but not registered.
-- FileReadTool has no automated tests.
+- FileReadTool test coverage is not yet comprehensive.
 - PDF page selection is accepted but ignored.
 - PDF text extraction and genuine image understanding are not implemented.
 - File paths are not restricted to approved workspace roots.
@@ -105,14 +110,13 @@ Never commit API keys or `.env` files.
 
 ## Recommended Implementation Order
 
-1. Register FileSearchTool and add agent-level tests.
-2. Add workspace-root restrictions to all filesystem tools.
-3. Test and harden FileReadTool, including real PDF page handling.
-4. Implement FileWriteTool with explicit write/append behavior and path restrictions.
-5. Implement a structured, allowlisted CommandExecTool with timeouts and output limits.
-6. Add safe Git operations, separating read-only operations from mutations.
-7. Add persistent session storage, better cost controls, and production observability.
-8. Consider HTTP, process, calendar, database, and MCP/plugin integrations after the core repository-assistant workflow is reliable.
+1. Add workspace-root restrictions to all filesystem tools.
+2. Test and harden FileReadTool, including real PDF page handling.
+3. Implement FileWriteTool with explicit write/append behavior and path restrictions.
+4. Implement a structured, allowlisted CommandExecTool with timeouts and output limits.
+5. Add safe Git operations, separating read-only operations from mutations.
+6. Add persistent session storage, better cost controls, and production observability.
+7. Consider HTTP, process, calendar, database, and MCP/plugin integrations after the core repository-assistant workflow is reliable.
 
 ## Definition of Done for a New Tool
 
