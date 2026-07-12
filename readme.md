@@ -79,6 +79,15 @@ npm run dev
 npm start
 ```
 
+Common tasks are also available through `make`:
+
+```bash
+make run      # Start the interactive agent
+make test     # Run the test suite
+make build    # Bundle the CLI into dist/
+make check    # Run tests and build verification
+```
+
 Enter `exit` or `quit` to close the session. Conversation history is kept only in memory and is discarded when the process exits.
 
 ## Testing and Verification
