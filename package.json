@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run src/run.ts",
     "start": "bun run src/run.ts",
-    "test": "echo \"No tests yet\""
+    "test": "bun test"
   },
   "keywords": [],
   "author": "xiakezhu",
@@ -15,6 +15,7 @@
     "@openai/agents": "^0.7.2",
     "@tavily/core": "^0.7.2",
     "chalk": "^5.6.2",
+    "glob": "^13.0.6",
     "zod": "^4.3.6"
   }
 }

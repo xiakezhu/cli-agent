@@ -10,7 +10,7 @@ import { OpenAI } from "openai";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { config } from "./config";
-import { currentTimeTool, searchWebTool } from "./tools";
+import { currentTimeTool, FileReadTool, searchWebTool } from "./tools";
 import { logger } from "./utils/logger";
 
 function startSpinner(label = "Thinking") {
@@ -55,7 +55,7 @@ const triageAgent = new Agent({
     "Decide whether web search is needed. If needed, call searchWeb with a concise query.",
   ].join("\n"),
   handoffs: [timeAgent],
-  tools: [searchWebTool],
+  tools: [searchWebTool, FileReadTool],
 });
 
 triageAgent.on("agent_tool_start", (ctx, tool, details) => {
@@ -84,11 +84,12 @@ while (true) {
     );
     stopSpinner();
     thread = result.history;
-    console.log(`Agent: ${result.finalOutput ?? ""}`);
+    logger.info("Total tokens:", result.runContext.usage.totalTokens);
+    logger.info(`Agent: ${result.finalOutput ?? ""}`);
   } catch (error) {
     stopSpinner();
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`Agent run failed: ${message}`);
+    logger.error(`Agent run failed: ${message}`);
   }
 }
 
