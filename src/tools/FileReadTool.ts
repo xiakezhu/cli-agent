@@ -2,13 +2,16 @@ import { tool } from "@openai/agents";
 import z from "zod";
 import { readFile, access } from "fs/promises";
 import { constants as fsConstants } from "fs";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { logger } from "../utils/logger";
+import { assertPathWithinWorkspace } from "./pathGuard";
 
 // Configuration constants
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB for text files
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB for images
 const MAX_PDF_SIZE = 10 * 1024 * 1024; // 10MB for PDFs
 const MAX_BINARY_OUTPUT_SIZE = 256 * 1024; // 256KB of base64 in a tool result
+const MAX_PDF_TEXT_OUTPUT = 256 * 1024; // 256KB of extracted text in a tool result
 
 // Output schema
 const outputSchema = z.object({
@@ -119,21 +122,13 @@ class PDFFileHandler implements FileHandler {
     }
   > {
     const { pages } = options;
+    let start = 1;
+    let end: number | undefined;
 
-    // validate pages format if provided (e.g., "10-50")
     if (pages) {
-      const pagesMatch = pages.match(/^\s*(\d+)\s*-\s*(\d+)\s*$/);
-      if (!pagesMatch) {
-        throw new Error('pages must be a range like "10-50"');
-      }
-      const start = parseInt(pagesMatch[1], 10);
-      const end = parseInt(pagesMatch[2], 10);
-      if (start <= 0 || end < start) {
-        throw new Error(
-          "pages range invalid: start must be >=1 and end >= start",
-        );
-      }
-      logger.info("Requested PDF page range", { start, end });
+      const range = parsePageRange(pages);
+      start = range.start;
+      end = range.end;
     }
 
     try {
@@ -146,16 +141,63 @@ class PDFFileHandler implements FileHandler {
         );
       }
 
-      const base64 = encodeBoundedBinary(buffer, "PDF");
-      logger.info("Read PDF file", { filePath, size: base64.length });
-      return {
-        type: "pdf",
-        file: {
+      const loadingTask = getDocument({
+        data: new Uint8Array(buffer),
+        useWorkerFetch: false,
+        isEvalSupported: false,
+        disableFontFace: true,
+        verbosity: 0,
+      });
+      const doc = await loadingTask.promise;
+
+      try {
+        const numPages = doc.numPages;
+        if (start > numPages) {
+          throw new Error(
+            `pages range start (${start}) exceeds document page count (${numPages})`,
+          );
+        }
+        const endPage = end === undefined ? numPages : Math.min(end, numPages);
+
+        const sections: string[] = [];
+        let totalLength = 0;
+        for (let pageNumber = start; pageNumber <= endPage; pageNumber++) {
+          const page = await doc.getPage(pageNumber);
+          try {
+            const pageContent = await page.getTextContent();
+            const pageText = extractTextFromItems(pageContent.items);
+            const section = `[Page ${pageNumber}]\n${pageText}`;
+            totalLength += section.length;
+            if (totalLength > MAX_PDF_TEXT_OUTPUT) {
+              throw new Error(
+                `PDF text output too large: ${Math.round(totalLength / 1024)}KB ` +
+                  `(max tool output: ${MAX_PDF_TEXT_OUTPUT / 1024}KB)`,
+              );
+            }
+            sections.push(section);
+          } finally {
+            page.cleanup();
+          }
+        }
+
+        const content = sections.join("\n\n");
+        logger.info("Read PDF file", {
           filePath,
-          content: base64,
-          numOfLines: 1,
-        },
-      };
+          numPages,
+          pages: `${start}-${endPage}`,
+          extractedLines: content.split("\n").length,
+        });
+        return {
+          type: "pdf",
+          file: {
+            filePath,
+            content,
+            numOfLines: content.split("\n").length,
+          },
+        };
+      } finally {
+        await loadingTask.destroy().catch(() => {});
+      }
     } catch (err: any) {
       logger.error("Error reading PDF", { err: err?.message || String(err) });
       throw err;
@@ -267,7 +309,7 @@ export const FileReadTool = tool({
   name: "FileReadTool",
   description: `Read a file in File System with given path. Supports: ${handlerRegistry
     .getSupportedExtensions()
-    .join(", ")}`,
+    .join(", ")}. Text files can be limited by line range. PDF files return extracted text and the pages option selects a 1-indexed page range like "10-50".`,
   parameters: z.strictObject({
     filePath: z.string().describe("The absolute path to the file to read"),
     offset: z
@@ -300,11 +342,14 @@ export const FileReadTool = tool({
       throw new Error("invalid filePath: must be a non-empty string");
     }
 
+    // enforce workspace-root restrictions (also resolves relative paths)
+    const safePath = await assertPathWithinWorkspace(filePath);
+
     // check existence and accessibility
     try {
-      await access(filePath, fsConstants.F_OK | fsConstants.R_OK);
+      await access(safePath, fsConstants.F_OK | fsConstants.R_OK);
     } catch (err) {
-      throw new Error(`file does not exist or is not readable: ${filePath}`);
+      throw new Error(`file does not exist or is not readable: ${safePath}`);
     }
 
     // validate offset and limit
@@ -315,10 +360,10 @@ export const FileReadTool = tool({
       throw new Error("limit must be a positive integer when provided");
     }
 
-    const ext = getFileExtension(filePath);
+    const ext = getFileExtension(safePath);
 
     if (!ext) {
-      throw new Error(`file has no extension: ${filePath}`);
+      throw new Error(`file has no extension: ${safePath}`);
     }
 
     const handler = handlerRegistry.getHandler(ext);
@@ -331,7 +376,7 @@ export const FileReadTool = tool({
       );
     }
 
-    return handler.handle(filePath, { offset, limit, pages });
+    return handler.handle(safePath, { offset, limit, pages });
   },
 });
 
@@ -345,6 +390,30 @@ function getFileExtension(filePath: string): string {
     return "";
   }
   return filePath.slice(lastDotIndex + 1).toLowerCase();
+}
+
+function parsePageRange(pages: string): { start: number; end: number } {
+  const pagesMatch = pages.match(/^\s*(\d+)\s*-\s*(\d+)\s*$/);
+  if (!pagesMatch) {
+    throw new Error('pages must be a range like "10-50"');
+  }
+  const start = parseInt(pagesMatch[1], 10);
+  const end = parseInt(pagesMatch[2], 10);
+  if (start <= 0 || end < start) {
+    throw new Error("pages range invalid: start must be >=1 and end >= start");
+  }
+  return { start, end };
+}
+
+function extractTextFromItems(items: unknown[]): string {
+  let text = "";
+  for (const item of items) {
+    const candidate = item as { str?: unknown; hasEOL?: unknown };
+    if (typeof candidate.str !== "string") continue;
+    text += candidate.str;
+    text += candidate.hasEOL ? "\n" : " ";
+  }
+  return text.replace(/[ \t]+\n/g, "\n").trim();
 }
 
 function readFileInRange(raw: string, offset: number, maxLines?: number) {

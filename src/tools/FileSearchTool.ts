@@ -4,6 +4,7 @@ import { glob } from "glob";
 import { readFile, access } from "fs/promises";
 import { constants as fsConstants } from "fs";
 import { logger } from "../utils/logger";
+import { assertPathWithinWorkspace } from "./pathGuard";
 
 // Maximum number of files to return
 const MAX_FILES_TO_RETURN = 100;
@@ -52,7 +53,7 @@ export const fileSearchTool = tool({
       .optional(),
     path: z
       .string()
-      .describe("Base directory to search in. Defaults to current directory.")
+      .describe("Base directory to search in. Must be within the configured workspace. Defaults to current directory.")
       .optional(),
     maxResults: z
       .number()
@@ -91,19 +92,22 @@ export const fileSearchTool = tool({
     const actualMaxResults = Math.min(maxResults, MAX_FILES_TO_RETURN);
 
     try {
+      // Enforce workspace-root restrictions (also resolves relative paths)
+      const safePath = await assertPathWithinWorkspace(path);
+
       // Validate base path exists
-      await access(path, fsConstants.F_OK | fsConstants.R_OK);
+      await access(safePath, fsConstants.F_OK | fsConstants.R_OK);
 
       // Search by glob pattern
       if (pattern) {
-        return await searchByPattern(pattern, path, actualMaxResults);
+        return await searchByPattern(pattern, safePath, actualMaxResults);
       }
 
       // Search by content
       if (searchTerm) {
         return await searchByContent(
           searchTerm,
-          path,
+          safePath,
           actualMaxResults,
           includeLines
         );

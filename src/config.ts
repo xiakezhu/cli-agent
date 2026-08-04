@@ -5,7 +5,17 @@ const envSchema = z.object({
   TAVILY_API_KEY: z.string().trim().min(1),
   OPENAI_BASE_URL: z.string().trim().url().optional(),
   OPENAI_MODEL: z.string().trim().min(1).optional(),
+  WORKSPACE_ROOT: z.string().trim().min(1).optional(),
 });
+
+function parseWorkspaceRoots(raw: string | undefined): string[] {
+  if (!raw) return [process.cwd()];
+  const roots = raw
+    .split(",")
+    .map((root) => root.trim())
+    .filter(Boolean);
+  return roots.length > 0 ? roots : [process.cwd()];
+}
 
 function formatEnvError(issues: z.ZodIssue[]): string {
   const missing = new Set<string>();
@@ -52,4 +62,5 @@ export const config = {
   tavilyApiKey: env.TAVILY_API_KEY,
   openAIBaseURL: env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
   openAIModel: env.OPENAI_MODEL ?? 'gpt-4',
+  workspaceRoots: parseWorkspaceRoots(env.WORKSPACE_ROOT),
 } as const;

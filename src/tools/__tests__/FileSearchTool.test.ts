@@ -3,10 +3,12 @@ import { mkdtemp, rm, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { fileSearchTool } from "../FileSearchTool";
+import { configureWorkspaceRoots } from "../pathGuard";
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  configureWorkspaceRoots([]);
   await Promise.all(
     tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
   );
@@ -15,6 +17,12 @@ afterEach(async () => {
 async function createTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "file-search-tool-test-"));
   tempDirs.push(dir);
+  return dir;
+}
+
+async function createWorkspace(): Promise<string> {
+  const dir = await createTempDir();
+  configureWorkspaceRoots([dir]);
   return dir;
 }
 
@@ -39,7 +47,7 @@ async function invokeFileSearch(input: Record<string, unknown>) {
 
 describe("FileSearchTool", () => {
   test("counts all matches in a file when includeLines is false", async () => {
-    const dir = await createTempDir();
+    const dir = await createWorkspace();
     const filePath = join(dir, "multi-match.txt");
     await writeFile(
       filePath,
@@ -62,7 +70,7 @@ describe("FileSearchTool", () => {
   });
 
   test("limits line-level results when includeLines is true", async () => {
-    const dir = await createTempDir();
+    const dir = await createWorkspace();
     const filePath = join(dir, "lines.txt");
     await writeFile(
       filePath,
@@ -92,7 +100,7 @@ describe("FileSearchTool", () => {
   });
 
   test("returns pattern matches up to maxResults", async () => {
-    const dir = await createTempDir();
+    const dir = await createWorkspace();
     await mkdir(join(dir, "nested"));
     await writeFile(join(dir, "a.ts"), "export const a = 1;\n", "utf-8");
     await writeFile(join(dir, "nested", "b.ts"), "export const b = 2;\n", "utf-8");
@@ -108,5 +116,32 @@ describe("FileSearchTool", () => {
     expect(result.totalFound).toBe(1);
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0].filePath.endsWith(".ts")).toBe(true);
+  });
+
+  test("rejects a base path outside the configured workspace", async () => {
+    const workspaceDir = await createWorkspace();
+    const outsideDir = await createTempDir();
+    await writeFile(join(outsideDir, "a.txt"), "needle\n", "utf-8");
+
+    const result = await invokeFileSearch({
+      pattern: "**/*.txt",
+      path: outsideDir,
+    });
+
+    expect(result).toContain("outside the allowed workspace roots");
+    expect(result).not.toContain("a.txt");
+  });
+
+  test("rejects searches when no workspace roots are configured", async () => {
+    configureWorkspaceRoots([]);
+    const dir = await createTempDir();
+    await writeFile(join(dir, "a.txt"), "needle\n", "utf-8");
+
+    const result = await invokeFileSearch({
+      searchTerm: "needle",
+      path: dir,
+    });
+
+    expect(result).toContain("no workspace roots configured");
   });
 });

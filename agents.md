@@ -33,6 +33,7 @@ Optional:
 - `OPENAI_BASE_URL`: defaults to `https://api.openai.com/v1`.
 - `OPENAI_MODEL`: defaults to `gpt-4`.
 - `LOG_LEVEL`: one of `DEBUG`, `INFO`, `WARN`, or `ERROR`.
+- `WORKSPACE_ROOT`: comma-separated list of directories the file tools may access; defaults to the current working directory.
 
 Never commit API keys or `.env` files.
 
@@ -44,13 +45,15 @@ Never commit API keys or `.env` files.
 | `src/config.ts` | Validates environment variables with Zod | Active |
 | `src/tools/searchWeb.ts` | Searches the web through Tavily | Active tool |
 | `src/tools/time.ts` | Returns UTC or timezone-specific current time | Active through Time Agent handoff |
-| `src/tools/FileReadTool.ts` | Reads supported text files, PDFs, and images with size checks | Active tool with basic tests; needs security hardening |
+| `src/tools/pathGuard.ts` | Resolves and validates paths against configured workspace roots | Shared security guard |
+| `src/tools/FileReadTool.ts` | Reads supported text files, PDFs, and images with size checks; PDF page text extraction | Active tool with comprehensive tests |
 | `src/tools/FileSearchTool.ts` | Searches paths by glob or searches file content | Active tool with tests |
 | `src/tools/registry.ts` | Selects tools by capability | Active CLI Agent registry |
 | `src/tools/index.ts` | Exports tools and registry helpers used by the application | Active |
 | `src/skills/` | Discovers bounded skill metadata, selects skills, and lazily loads trusted instructions and references | Active |
 | `src/utils/logger.ts` | Structured, colored in-process logging | Active |
-| `src/tools/__tests__/FileSearchTool.test.ts` | Tests file pattern and content search behavior | Three passing tests |
+| `src/tools/__tests__/FileReadTool.test.ts` | Tests text, image, and PDF page handling plus workspace restrictions | Eighteen passing tests |
+| `src/tools/__tests__/FileSearchTool.test.ts` | Tests file pattern/content search behavior and workspace restrictions | Five passing tests |
 | `src/skills/__tests__/skills.test.ts` | Tests skill discovery, loading, explicit selection, and context formatting | Active |
 
 ## Agent Flow
@@ -66,19 +69,19 @@ Never commit API keys or `.env` files.
 
 ### FileReadTool
 
-- Requires an absolute `filePath`.
+- Requires a path that resolves inside a configured workspace root (defaults to the working directory).
 - Text formats support zero-based `offset` and optional `limit` in lines.
 - Text files are limited to 10 MB.
-- PDFs are limited to 10 MB.
-- Images are limited to 5 MB.
+- PDFs are limited to 10 MB and return extracted text, not base64.
+- The `pages` option selects a 1-indexed page range such as `"10-50"`, clamped to the document page count.
+- Images are limited to 5 MB and returned as base64.
 - Supported formats are declared by the handler registry in `FileReadTool.ts`.
-- The `pages` option currently validates a range but does not actually restrict PDF output.
-- PDF and image content is returned as base64, not interpreted visual or extracted text content.
+- PDF and image content is bounded; image content is base64, not interpreted visual content.
 
 ### FileSearchTool
 
 - Accepts either a glob `pattern` or a content `searchTerm`.
-- Searches under `path`, which defaults to the current directory.
+- Searches under `path`, which must resolve inside a configured workspace root and defaults to the current directory.
 - Returns at most 100 results.
 - Content search skips files larger than 1 MB.
 - The CLI Agent receives this tool through the capability registry.
@@ -99,10 +102,8 @@ Never commit API keys or `.env` files.
 
 ## Known Gaps
 
-- FileReadTool test coverage is not yet comprehensive.
-- PDF page selection is accepted but ignored.
-- PDF text extraction and genuine image understanding are not implemented.
-- File paths are not restricted to approved workspace roots.
+- Scanned PDFs and PDFs with embedded images yield no usable text.
+- Image understanding is limited to passing base64 to the model.
 - Conversations are not persisted.
 - Tool retries, timeouts, cancellation, and consistent error schemas are incomplete.
 - There is no end-to-end test with mocked model and search responses.
@@ -110,8 +111,8 @@ Never commit API keys or `.env` files.
 
 ## Recommended Implementation Order
 
-1. Add workspace-root restrictions to all filesystem tools.
-2. Test and harden FileReadTool, including real PDF page handling.
+1. Add workspace-root restrictions to all filesystem tools. (Completed)
+2. Test and harden FileReadTool, including real PDF page handling. (Completed)
 3. Implement FileWriteTool with explicit write/append behavior and path restrictions.
 4. Implement a structured, allowlisted CommandExecTool with timeouts and output limits.
 5. Add safe Git operations, separating read-only operations from mutations.

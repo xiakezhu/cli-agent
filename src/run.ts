@@ -22,6 +22,7 @@ import {
 } from "./skills";
 import { currentTimeTool, getTools } from "./tools";
 import type { ToolCapability } from "./tools";
+import { configureWorkspaceRoots } from "./tools/pathGuard";
 import { logger } from "./utils/logger";
 
 function startSpinner(label = "Thinking") {
@@ -47,6 +48,11 @@ const client = new OpenAI({
 setTracingDisabled(true);
 setDefaultOpenAIClient(client);
 setOpenAIAPI("chat_completions");
+
+configureWorkspaceRoots(config.workspaceRoots);
+logger.info("Configured workspace roots", {
+  roots: config.workspaceRoots,
+});
 
 const timeAgent = new Agent({
   name: "Time Agent",

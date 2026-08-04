@@ -10,9 +10,11 @@ The repository is currently a working proof of concept and a foundation for a fu
 - OpenAI or OpenAI-compatible model endpoints.
 - Current web research through Tavily.
 - Current time in UTC or an IANA timezone.
+- Local file access restricted to configured workspace roots.
 - Local text-file reading with line offset and limit controls.
+- PDF text extraction with 1-indexed page-range selection.
 - Local file discovery by glob pattern or text-content search.
-- PDF and image loading as base64 data.
+- PDF and image loading (images as base64 data).
 - Tool and handoff event logging.
 - Token-usage reporting after each agent run.
 - Progressive skill discovery with lazy, per-turn instruction loading.
@@ -60,6 +62,10 @@ TAVILY_API_KEY=your-tavily-api-key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4
 LOG_LEVEL=INFO
+
+# Optional: comma-separated list of directories the file tools may access.
+# Defaults to the current working directory.
+WORKSPACE_ROOT=$PWD
 ```
 
 Do not commit `.env` or real credentials.
@@ -126,16 +132,16 @@ CLI Agent (Wall-E)
 | Path | Purpose |
 | --- | --- |
 | `src/run.ts` | Application entry point, agent configuration, CLI loop, and session history |
-| `src/config.ts` | Environment validation and model/search configuration |
+| `src/config.ts` | Environment validation and model/search/workspace configuration |
 | `src/tools/searchWeb.ts` | Tavily-backed web search tool |
 | `src/tools/time.ts` | Current-time tool used by the Time Agent |
+| `src/tools/pathGuard.ts` | Workspace-root enforcement shared by the filesystem tools |
 | `src/tools/FileReadTool.ts` | Text, PDF, and image reader |
 | `src/tools/FileSearchTool.ts` | Glob and content search available to the CLI Agent |
 | `src/tools/registry.ts` | Capability-based registration and selection of CLI Agent tools |
 | `src/tools/index.ts` | Public tool exports used by the agent |
 | `src/skills/` | Skill discovery, metadata selection, secure loading, and per-turn context formatting |
 | `src/utils/logger.ts` | Structured console logging |
-| `src/utils/pdf.ts` | PDF-to-base64 helper |
 
 ## File Support
 
@@ -145,17 +151,18 @@ FileReadTool currently supports:
 - Documents: `pdf`
 - Images: `png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`, `svg`
 
-Text files can be read by line range. PDF and image files are returned as base64; the project does not yet perform PDF text extraction or guaranteed visual interpretation. The PDF `pages` argument is validated but currently does not filter the returned document.
+Text files can be read by line range. PDFs are parsed and their text is extracted; the `pages` option selects a 1-indexed page range such as `"10-50"` and clamps to the document page count. Images are returned as base64; the project does not yet perform guaranteed visual interpretation.
 
 ## Current Limitations
 
 - No persistent conversations or user preferences.
 - No file writing, command execution, Git management, or process monitoring.
-- File access is not yet restricted to configured workspace roots.
+- Workspace access applies to FileReadTool, FileSearchTool, and skill resources, but not to all future tool types yet.
 - Limited automated test coverage and no end-to-end test.
 - No retry or cancellation strategy for model and search failures.
 - No production authentication, audit storage, usage limits, or cost controls.
-- Large PDF and image base64 responses can consume substantial model context.
+- PDFs with embedded images or scanned content yield no usable text.
+- Large image base64 responses can consume substantial model context.
 
 Use the agent only in a trusted local environment and avoid asking it to read sensitive paths.
 
@@ -206,14 +213,14 @@ the main instructions.
 
 The current implementation is an early prototype, estimated at roughly 25–35% of the broader tool roadmap.
 
-Near-term priorities are:
+Completed: filesystem access is restricted to configured workspace roots, and FileReadTool has comprehensive tests plus real PDF page text extraction.
 
-1. Restrict filesystem access to configured workspace roots.
-2. Add comprehensive FileReadTool tests and real PDF page support.
-3. Add a safe FileWriteTool.
-4. Add structured, allowlisted command execution.
-5. Add Git workflows and end-to-end tests.
-6. Add session persistence and production observability.
+Remaining near-term priorities are:
+
+1. Add a safe FileWriteTool.
+2. Add structured, allowlisted command execution.
+3. Add Git workflows and end-to-end tests.
+4. Add session persistence and production observability.
 
 See `agents.md` for detailed implementation guidance and the definition of done for new tools.
 
