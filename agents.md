@@ -4,7 +4,7 @@ This file gives coding agents the context needed to work safely and consistently
 
 ## Project Purpose
 
-CLI Agent is an early-stage, terminal-based AI assistant built with the OpenAI Agents SDK. The agent, named Wall-E, can hold an in-memory conversation, answer general questions, search the web through Tavily, report the current time, and read selected local file formats.
+CLI Agent is an early-stage, terminal-based AI assistant built around the Pi coding-agent SDK. The agent, named Wall-E, uses an in-memory Pi AgentSession to hold a conversation, answer general questions, search the web through Tavily, report the current time, and read selected local file formats.
 
 The project is currently a proof of concept. It is not yet a production-ready autonomous coding agent: it cannot write files, execute commands, manage Git repositories, persist sessions, or enforce a complete filesystem permission policy.
 
@@ -41,16 +41,18 @@ Never commit API keys or `.env` files.
 
 | Path | Responsibility | Current status |
 | --- | --- | --- |
-| `src/run.ts` | Configures the model client, agents, tools, CLI loop, session history, and event logging | Active entry point |
+| `src/run.ts` | Runs the Pi session CLI loop, streams output, and logs events | Active entry point |
+| `src/pi/session.ts` | Configures the Pi AgentSession, OpenAI-compatible provider, and in-memory session | Active runtime |
+| `src/pi/tools.ts` | Adapts bounded project tools to Pi custom tool definitions | Active runtime |
 | `src/config.ts` | Validates environment variables with Zod | Active |
 | `src/tools/searchWeb.ts` | Searches the web through Tavily | Active tool |
-| `src/tools/time.ts` | Returns UTC or timezone-specific current time | Active through Time Agent handoff |
+| `src/tools/time.ts` | Returns UTC or timezone-specific current time | Active through Pi custom-tool adapter |
 | `src/tools/pathGuard.ts` | Resolves and validates paths against configured workspace roots | Shared security guard |
 | `src/tools/FileReadTool.ts` | Reads supported text files, PDFs, and images with size checks; PDF page text extraction | Active tool with comprehensive tests |
 | `src/tools/FileSearchTool.ts` | Searches paths by glob or searches file content | Active tool with tests |
 | `src/tools/registry.ts` | Selects tools by capability | Active CLI Agent registry |
 | `src/tools/index.ts` | Exports tools and registry helpers used by the application | Active |
-| `src/skills/` | Discovers bounded skill metadata, selects skills, and lazily loads trusted instructions and references | Active |
+| `src/skills/` | Bounded skill utilities retained for future Pi resource-loader integration | Not wired into runtime |
 | `src/utils/logger.ts` | Structured, colored in-process logging | Active |
 | `src/tools/__tests__/FileReadTool.test.ts` | Tests text, image, and PDF page handling plus workspace restrictions | Eighteen passing tests |
 | `src/tools/__tests__/FileSearchTool.test.ts` | Tests file pattern/content search behavior and workspace restrictions | Five passing tests |
@@ -58,11 +60,11 @@ Never commit API keys or `.env` files.
 
 ## Agent Flow
 
-1. `src/run.ts` validates configuration and creates an OpenAI-compatible client.
-2. The CLI Agent receives user input and keeps the returned SDK history in memory.
-3. It can answer directly or invoke web search and file reading.
-4. Time-related requests may be handed off to the Time Agent.
-5. The CLI logs token usage and the final response.
+1. `src/run.ts` validates configuration and creates a Pi AgentSession.
+2. The session uses a project-local OpenAI-compatible provider configured from `LLM_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`.
+3. It can answer directly or invoke bounded web, time, and filesystem custom tools.
+4. Pi streams response text and records session history in memory.
+5. The CLI logs tool events and session token usage.
 6. Entering `exit` or `quit` ends the process and discards the session history.
 
 ## Current Tool Contracts
@@ -88,7 +90,7 @@ Never commit API keys or `.env` files.
 
 ## Development Rules
 
-- Follow the `@openai/agents` `tool(...)` pattern and use strict Zod schemas for tool inputs.
+- Add Pi custom tools through `defineTool(...)` with strict TypeBox schemas. Keep the existing bounded tool implementations and their Zod validation until they are deliberately migrated.
 - Prefer structured inputs over shell command strings. Future command execution must use `execFile` or `spawn` with a command and argument array, never shell parsing.
 - Treat filesystem access as security-sensitive. New file tools should enforce configured workspace roots and reject paths outside them.
 - Add focused tests for normal behavior, invalid input, boundary sizes, permission failures, and security restrictions.
@@ -98,6 +100,7 @@ Never commit API keys or `.env` files.
 - Keep portable `SKILL.md` frontmatter limited to `name` and `description`; place CLI capability metadata in `skill.json`.
 - Load bundled skill references only through the selected-skill resource reader.
 - Preserve the interactive CLI behavior and stop the spinner in every success or failure path.
+- Do not enable Pi's built-in `bash`, `edit`, or `write` tools without an explicit security design and tests. The current runtime uses only bounded custom tools.
 - Update both this file and `readme.md` when capabilities or commands change.
 
 ## Known Gaps

@@ -1,13 +1,13 @@
 # CLI Agent
 
-CLI Agent is an early-stage AI assistant that runs in a terminal. The assistant, named Wall-E, uses the OpenAI Agents SDK to combine a conversational model with web search, timezone support, and local file reading.
+CLI Agent is an early-stage AI assistant that runs in a terminal. The assistant, named Wall-E, uses the [Pi coding-agent SDK](https://github.com/earendil-works/pi) for its agent loop, streaming, model runtime, and in-memory conversation state, while retaining the project's bounded web, time, and filesystem tools.
 
 The repository is currently a working proof of concept and a foundation for a future local repository assistant. It is suitable for development and evaluation, but it does not yet provide the security controls, persistence, test coverage, or action tools expected from a production product.
 
 ## Current Capabilities
 
 - Multi-turn conversation during the current CLI session.
-- OpenAI or OpenAI-compatible model endpoints.
+- OpenAI-compatible model endpoints through Pi's provider runtime.
 - Current web research through Tavily.
 - Current time in UTC or an IANA timezone.
 - Local file access restricted to configured workspace roots.
@@ -15,9 +15,8 @@ The repository is currently a working proof of concept and a foundation for a fu
 - PDF text extraction with 1-indexed page-range selection.
 - Local file discovery by glob pattern or text-content search.
 - PDF and image loading (images as base64 data).
-- Tool and handoff event logging.
+- Pi agent lifecycle and tool event logging.
 - Token-usage reporting after each agent run.
-- Progressive skill discovery with lazy, per-turn instruction loading.
 
 ## Customer Value
 
@@ -121,17 +120,18 @@ still need tests.
 User terminal
     |
     v
-CLI Agent (Wall-E)
-    |-- direct model response
-    |-- Tavily web search
-    |-- local file reader
-    `-- Time Agent handoff
-            `-- timezone-aware current time
+Pi AgentSession (Wall-E)
+    |-- OpenAI-compatible provider runtime
+    |-- Tavily web search adapter
+    |-- bounded local file adapters
+    `-- timezone-aware time adapter
 ```
 
 | Path | Purpose |
 | --- | --- |
-| `src/run.ts` | Application entry point, agent configuration, CLI loop, and session history |
+| `src/run.ts` | Application entry point, CLI loop, streamed output, and event logging |
+| `src/pi/session.ts` | Pi AgentSession, provider, memory-session, and safe resource-loader configuration |
+| `src/pi/tools.ts` | Adapts the project's structured bounded tools to Pi custom tools |
 | `src/config.ts` | Environment validation and model/search/workspace configuration |
 | `src/tools/searchWeb.ts` | Tavily-backed web search tool |
 | `src/tools/time.ts` | Current-time tool used by the Time Agent |
@@ -140,7 +140,7 @@ CLI Agent (Wall-E)
 | `src/tools/FileSearchTool.ts` | Glob and content search available to the CLI Agent |
 | `src/tools/registry.ts` | Capability-based registration and selection of CLI Agent tools |
 | `src/tools/index.ts` | Public tool exports used by the agent |
-| `src/skills/` | Skill discovery, metadata selection, secure loading, and per-turn context formatting |
+| `src/skills/` | Legacy bounded skill discovery utilities retained for future Pi skill integration |
 | `src/utils/logger.ts` | Structured console logging |
 
 ## File Support
@@ -155,9 +155,9 @@ Text files can be read by line range. PDFs are parsed and their text is extracte
 
 ## Current Limitations
 
-- No persistent conversations or user preferences.
+- No persistent conversations or user preferences; Pi uses an in-memory session.
 - No file writing, command execution, Git management, or process monitoring.
-- Workspace access applies to FileReadTool, FileSearchTool, and skill resources, but not to all future tool types yet.
+- Pi's built-in filesystem and shell tools are disabled. Workspace access applies to FileReadTool and FileSearchTool.
 - Limited automated test coverage and no end-to-end test.
 - No retry or cancellation strategy for model and search failures.
 - No production authentication, audit storage, usage limits, or cost controls.
@@ -167,6 +167,10 @@ Text files can be read by line range. PDFs are parsed and their text is extracte
 Use the agent only in a trusted local environment and avoid asking it to read sensitive paths.
 
 ## Skills
+
+The previous custom skill-selection loop is not wired into the Pi session yet.
+The bounded skill discovery utilities remain in the repository while the next
+iteration maps them to Pi's resource-loader skill API.
 
 Repository skills live in `.agents/skills/<skill-name>/SKILL.md` or
 `skills/<skill-name>/SKILL.md`. Wall-E initially sees only each skill's name and
@@ -213,7 +217,7 @@ the main instructions.
 
 The current implementation is an early prototype, estimated at roughly 25–35% of the broader tool roadmap.
 
-Completed: filesystem access is restricted to configured workspace roots, and FileReadTool has comprehensive tests plus real PDF page text extraction.
+Completed: filesystem access is restricted to configured workspace roots, FileReadTool has comprehensive tests plus real PDF page text extraction, and the agent runtime is now Pi-based with Pi's built-in mutation and shell tools disabled.
 
 Remaining near-term priorities are:
 
