@@ -7,6 +7,7 @@ The repository is currently a working proof of concept and a foundation for a fu
 ## Current Capabilities
 
 - Multi-turn conversation during the current CLI session.
+- Incremental response streaming: text appears as Pi emits each token rather than waiting for the turn to finish.
 - OpenAI-compatible model endpoints through Pi's provider runtime.
 - Current web research through Tavily.
 - Current time in UTC or an IANA timezone.

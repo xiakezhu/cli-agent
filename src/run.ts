@@ -1,11 +1,13 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
+import { createStreamingRenderer } from "./cli/stream";
 import { config } from "./config";
 import { configureWorkspaceRoots } from "./tools/pathGuard";
 import { logger } from "./utils/logger";
 import { createWallESession } from "./pi/session";
 
 function startSpinner(label = "Thinking") {
+  if (!process.stdout.isTTY) return () => {};
   const frames = ["|", "/", "-", "\\"];
   let i = 0;
   const timer = setInterval(() => {
@@ -14,7 +16,7 @@ function startSpinner(label = "Thinking") {
   return () => {
     clearInterval(timer);
     process.stdout.write("\r");
-    process.stdout.clearLine(0);
+    process.stdout.clearLine?.(0);
   };
 }
 
@@ -41,21 +43,11 @@ try {
     if (text.toLowerCase() === "exit" || text.toLowerCase() === "quit") break;
 
     const stopSpinner = startSpinner();
-    let wroteOutput = false;
-    const unsubscribe = session.subscribe((event) => {
-      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-        if (!wroteOutput) {
-          stopSpinner();
-          process.stdout.write("Agent: ");
-          wroteOutput = true;
-        }
-        process.stdout.write(event.assistantMessageEvent.delta);
-      }
-    });
+    const renderer = createStreamingRenderer(process.stdout, stopSpinner);
+    const unsubscribe = session.subscribe(renderer.handle);
     try {
       await session.prompt(text);
-      if (!wroteOutput) process.stdout.write("Agent: ");
-      process.stdout.write("\n");
+      renderer.finish();
       logger.info("Session usage", session.getSessionStats().tokens);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

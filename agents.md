@@ -63,7 +63,7 @@ Never commit API keys or `.env` files.
 1. `src/run.ts` validates configuration and creates a Pi AgentSession.
 2. The session uses a project-local OpenAI-compatible provider configured from `LLM_API_KEY`, `OPENAI_BASE_URL`, and `OPENAI_MODEL`.
 3. It can answer directly or invoke bounded web, time, and filesystem custom tools.
-4. Pi streams response text and records session history in memory.
+4. Pi streams response text incrementally as `text_delta` events and records session history in memory.
 5. The CLI logs tool events and session token usage.
 6. Entering `exit` or `quit` ends the process and discards the session history.
 
