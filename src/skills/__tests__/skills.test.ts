@@ -10,6 +10,7 @@ import {
   formatSkillCatalog,
   parseExplicitSkillSelection,
 } from "../SkillSelector";
+import { applySkillInstructions, preparePromptWithSkills } from "../prompt";
 
 const tempDirs: string[] = [];
 
@@ -192,5 +193,37 @@ describe("skill management", () => {
     );
 
     expect(result).toContain("escapes selected skill");
+  });
+
+  test("prepares a prompt with selected skill instructions", async () => {
+    const root = await createSkillRoot();
+    await writeSkill(root, "code-review");
+    const registry = await SkillRegistry.discover([root]);
+    const loader = new SkillLoader(registry);
+
+    const prepared = await preparePromptWithSkills(
+      "$code-review inspect the current changes",
+      registry,
+      loader,
+    );
+    expect(prepared).toContain('<skill name="code-review">');
+    expect(prepared).toContain("Inspect the repository");
+    expect(prepared).toContain("User task:");
+    expect(prepared).toContain("inspect the current changes");
+    expect(prepared).not.toContain("$code-review");
+  });
+
+  test("leaves ordinary prompts unchanged when no skill is selected", async () => {
+    const root = await createSkillRoot();
+    await writeSkill(root, "code-review");
+    const registry = await SkillRegistry.discover([root]);
+    const loader = new SkillLoader(registry);
+
+    await expect(
+      preparePromptWithSkills("summarize this file", registry, loader),
+    ).resolves.toBe("summarize this file");
+    expect(applySkillInstructions("summarize this file", [])).toBe(
+      "summarize this file",
+    );
   });
 });

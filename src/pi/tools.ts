@@ -1,8 +1,10 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
 import type { Tool } from "@openai/agents";
-import { FileReadTool, currentTimeTool, fileSearchTool, searchWebTool } from "../tools";
+import { FileReadTool, currentTimeTool, fileSearchTool, searchWebTool, grokWebSearchTool } from "../tools";
 import type { ToolCapability } from "../tools";
+import { sanitizeError } from "../tools/toolError";
+import { logger } from "../utils/logger";
 
 type LegacyTool = Pick<Tool, "invoke">;
 
@@ -23,11 +25,17 @@ function adaptLegacyTool(
     description,
     parameters,
     execute: async (_toolCallId, args) => {
-      const result = await legacyTool.invoke(undefined as never, JSON.stringify(args));
-      return {
-        content: [{ type: "text" as const, text: serialize(result) }],
-        details: {},
-      };
+      try {
+        const result = await legacyTool.invoke(undefined as never, JSON.stringify(args));
+        return {
+          content: [{ type: "text" as const, text: serialize(result) }],
+          details: {},
+        };
+      } catch (err) {
+        const sanitized = sanitizeError(err, name);
+        logger.warn(`Tool "${name}" failed`, { code: sanitized.code, message: sanitized.message });
+        throw sanitized; // Pi catches and converts to isError: true
+      }
     },
   });
 }
@@ -39,6 +47,13 @@ const piTools = {
     "Search the web for up-to-date information. Use a short, specific query.",
     Type.Object({ query: Type.String({ minLength: 2 }) }),
     searchWebTool,
+  ),
+  "web-search-grok": adaptLegacyTool(
+    "web_search",
+    "Grok web search",
+    "Search the web using Grok's built-in search. Use a short, specific query.",
+    Type.Object({ query: Type.String({ minLength: 2 }) }),
+    grokWebSearchTool,
   ),
   "filesystem-read": adaptLegacyTool(
     "FileReadTool",
@@ -78,8 +93,9 @@ export function getPiTools(capabilities: readonly ToolCapability[]) {
   const selected = new Set(capabilities);
   return [
     ...(selected.has("web-search") ? [piTools["web-search"]] : []),
+    ...(selected.has("web-search-grok") ? [piTools["web-search-grok"]] : []),
     ...(selected.has("filesystem-read") ? [piTools["filesystem-read"]] : []),
     ...(selected.has("filesystem-search") ? [piTools["filesystem-search"]] : []),
-    piTools.time,
+    ...(selected.has("time") ? [piTools.time] : []),
   ];
 }

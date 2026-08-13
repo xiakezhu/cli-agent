@@ -1,10 +1,17 @@
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { parseCliArgs } from "./cli/args";
 import { createStreamingRenderer } from "./cli/stream";
-import { config } from "./config";
+import { defaultSessionDir, resolveSessionPath } from "./pi/sessionManager";
+import {
+  defaultSkillRoots,
+  preparePromptWithSkills,
+  SkillLoader,
+  SkillRegistry,
+} from "./skills";
 import { configureWorkspaceRoots } from "./tools/pathGuard";
 import { logger } from "./utils/logger";
-import { createWallESession } from "./pi/session";
 
 function startSpinner(label = "Thinking") {
   if (!process.stdout.isTTY) return () => {};
@@ -20,11 +27,51 @@ function startSpinner(label = "Thinking") {
   };
 }
 
+const { sessionMode, sessionRef, listSessions } = parseCliArgs(process.argv.slice(2));
+const sessionDir = defaultSessionDir();
+
+if (listSessions) {
+  const sessions = await SessionManager.list(process.cwd(), sessionDir);
+  if (sessions.length === 0) {
+    console.log("No sessions found for this project.");
+  } else {
+    console.log("Sessions:");
+    for (const session of sessions) {
+      console.log(
+        `  ${session.id} — ${session.firstMessage || "(empty)"} (${session.modified.toLocaleString()})`,
+      );
+    }
+  }
+  process.exit(0);
+}
+
+const { config } = await import("./config");
+const { createWallESession } = await import("./pi/session");
 configureWorkspaceRoots(config.workspaceRoots);
 logger.info("Configured workspace roots", { roots: config.workspaceRoots });
 
-const baseCapabilities = ["web-search", "filesystem-read", "filesystem-search"] as const;
-const { session } = await createWallESession(baseCapabilities);
+const skillRegistry = await SkillRegistry.discover(defaultSkillRoots());
+const skillLoader = new SkillLoader(skillRegistry);
+logger.info("Discovered skills", {
+  count: skillRegistry.list().length,
+  names: skillRegistry.list().map((skill) => skill.name),
+});
+
+const baseCapabilities = ["web-search", "filesystem-read", "filesystem-search", "time"] as const;
+const capabilities = config.xaiApiKey
+  ? ([...baseCapabilities, "web-search-grok"] as const)
+  : baseCapabilities;
+
+const sessionPath = sessionRef
+  ? await resolveSessionPath(sessionRef, process.cwd(), sessionDir)
+  : undefined;
+const { session } = await createWallESession(capabilities, {
+  sessionMode,
+  sessionPath,
+  sessionDir,
+});
+
+logger.info("Session active", { id: session.sessionId, file: session.sessionFile });
 
 session.subscribe((event) => {
   if (event.type === "tool_execution_start") {
@@ -46,7 +93,8 @@ try {
     const renderer = createStreamingRenderer(process.stdout, stopSpinner);
     const unsubscribe = session.subscribe(renderer.handle);
     try {
-      await session.prompt(text);
+      const prompt = await preparePromptWithSkills(text, skillRegistry, skillLoader);
+      await session.prompt(prompt);
       renderer.finish();
       logger.info("Session usage", session.getSessionStats().tokens);
     } catch (error) {

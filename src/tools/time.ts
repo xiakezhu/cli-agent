@@ -1,5 +1,6 @@
 import { tool } from "@openai/agents";
 import z from "zod";
+import { ToolError } from "./toolError";
 
 export const currentTimeTool = tool(
     {
@@ -15,7 +16,7 @@ export const currentTimeTool = tool(
                     const timeString = now.toLocaleString("en-US", { timeZone: timezone });
                     return `Current time in ${timezone} is ${timeString}`;
                 } catch (error) {
-                    return `Invalid timezone: ${timezone}`;
+                    throw new ToolError("currentTime", `Invalid timezone: ${timezone}`, "INVALID_TIMEZONE");
                 }
             } else {
                 return `Current time in UTC is ${now.toISOString()}`;

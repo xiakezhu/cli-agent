@@ -3,6 +3,7 @@ import { z } from 'zod';
 const envSchema = z.object({
   LLM_API_KEY: z.string().trim().min(1),
   TAVILY_API_KEY: z.string().trim().min(1),
+  XAI_API_KEY: z.string().trim().min(1).optional(),
   OPENAI_BASE_URL: z.string().trim().url().optional(),
   OPENAI_MODEL: z.string().trim().min(1).optional(),
   WORKSPACE_ROOT: z.string().trim().min(1).optional(),
@@ -60,6 +61,7 @@ const env = readEnv();
 export const config = {
   llmApiKey: env.LLM_API_KEY,
   tavilyApiKey: env.TAVILY_API_KEY,
+  xaiApiKey: env.XAI_API_KEY,
   openAIBaseURL: env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
   openAIModel: env.OPENAI_MODEL ?? 'gpt-4',
   workspaceRoots: parseWorkspaceRoots(env.WORKSPACE_ROOT),

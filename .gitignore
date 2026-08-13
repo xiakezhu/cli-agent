@@ -10,7 +10,10 @@ __pycache__/
 .env.*.local
 
 # Local agent skills
-skills/
+/skills/
+
+# Local persisted conversations
+.cli-agent/
 
 # Build outputs
 dist/

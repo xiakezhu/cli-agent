@@ -2,6 +2,9 @@ import { tool } from '@openai/agents';
 import { tavily } from '@tavily/core';
 import { z } from 'zod';
 import { config } from '../config';
+import { withTimeout, sanitizeError, ToolError } from './toolError';
+
+const TIMEOUT_MS = 15_000; // 15 seconds
 
 type SearchResult = {
   title: string;
@@ -11,8 +14,19 @@ type SearchResult = {
 
 async function callSearchAPI(text: string): Promise<string> {
   const tvly = tavily({ apiKey: config.tavilyApiKey });
-  const response = await tvly.search(text);
-  return response.results.map((result: any) => `${result.title}\n${result.url}\n${result.snippet}`).join("\n\n");
+  try {
+    const response = await withTimeout(
+      tvly.search(text),
+      TIMEOUT_MS,
+    );
+    return response.results.map((result: any) => `${result.title}\n${result.url}\n${result.snippet}`).join("\n\n");
+  } catch (err) {
+    // Re-throw ToolError as-is; sanitize everything else
+    if (err instanceof ToolError) {
+      throw err;
+    }
+    throw sanitizeError(err, 'searchWeb');
+  }
 }
 
 

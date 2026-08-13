@@ -2,12 +2,15 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   ModelRuntime,
-  SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { config } from "../config";
 import type { ToolCapability } from "../tools";
+import { createSessionManager, defaultSessionDir, type SessionMode } from "./sessionManager";
 import { getPiTools } from "./tools";
+
+export type { SessionMode } from "./sessionManager";
+export { createSessionManager, defaultSessionDir, resolveSessionPath } from "./sessionManager";
 
 const baseInstructions = [
   "You are Wall-E, an LLM agent running in a CLI.",
@@ -18,11 +21,19 @@ const baseInstructions = [
   "After a tool returns, use its result to answer the user.",
   "Do not repeat a tool call with identical arguments.",
   "You have no file-write, command-execution, or Git-mutation tools.",
+  "If a skill was selected for this turn, follow its instructions. Otherwise ignore skill-related text.",
 ].join("\n");
 
 const providerId = "cli-agent-openai-compatible";
 
-export async function createWallESession(capabilities: readonly ToolCapability[]) {
+export async function createWallESession(
+  capabilities: readonly ToolCapability[],
+  options: {
+    sessionMode?: SessionMode;
+    sessionPath?: string;
+    sessionDir?: string;
+  } = {},
+) {
   const modelRuntime = await ModelRuntime.create({
     credentials: new InMemoryCredentialStore(),
     modelsPath: null,
@@ -61,6 +72,12 @@ export async function createWallESession(capabilities: readonly ToolCapability[]
   await resourceLoader.reload();
 
   const customTools = getPiTools(capabilities);
+  const sessionManager = createSessionManager({
+    mode: options.sessionMode ?? "continue",
+    cwd: process.cwd(),
+    sessionDir: options.sessionDir ?? defaultSessionDir(),
+    sessionPath: options.sessionPath,
+  });
   return createAgentSession({
     cwd: process.cwd(),
     model,
@@ -69,6 +86,6 @@ export async function createWallESession(capabilities: readonly ToolCapability[]
     customTools,
     tools: customTools.map(({ name }) => name),
     noTools: "all",
-    sessionManager: SessionManager.inMemory(process.cwd()),
+    sessionManager,
   });
 }
